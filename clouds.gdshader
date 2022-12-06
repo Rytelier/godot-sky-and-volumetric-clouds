@@ -5,12 +5,16 @@ render_mode use_half_res_pass, use_quarter_res_pass;
 
 uniform sampler3D worlnoise : filter_linear_mipmap, repeat_enable;
 uniform sampler3D perlworlnoise : filter_linear_mipmap, repeat_enable;
-uniform sampler2D weathermap : filter_linear_mipmap, repeat_enable;
+uniform sampler2D cloud_map : filter_linear_mipmap, repeat_enable;
 
-uniform float _density : hint_range(0.01, 0.2) = 0.05;
+uniform float cloud_density : hint_range(0.01, 0.2) = 0.05;
 uniform float cloud_coverage :hint_range(0.1, 1.0) = 0.25;
-uniform float _time_scale :hint_range(0.0, 20.0) = 1.0;
-uniform float _time_offset : hint_range(0.0, 1000.0, 0.5) = 0.0;
+uniform float cloud_time_scale :hint_range(0.0, 20.0) = 1.0;
+uniform float cloud_time_offset : hint_range(0.0, 1000.0, 0.5) = 0.0;
+uniform vec2 cloud_direction = vec2(0.9,1);
+uniform vec2 cloud_stepsRange = vec2(96, 54);
+uniform float clouds_screen_lod : hint_range(0.0, 1.0, 0.1) = 1.0;
+uniform vec4 cloud_modulate : source_color = vec4(1,1,1,1);
 
 // Approximately earth sizes
 const float g_radius = 6000000.0; //ground radius
@@ -37,6 +41,17 @@ const float SUN_ENERGY = 1000.0;
 // optical length at zenith for molecules
 const float rayleigh_zenith_size = 8.4e3;
 const float mie_zenith_size = 1.25e3;
+
+// https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+vec3 interleaved_gradient_noise(vec2 pos) {
+	const vec3 magic = vec3(0.06711056f, 0.00583715f, 52.9829189f);
+	float res = fract(magic.z * fract(dot(pos, magic.xy))) * 2.0 - 1.0;
+	return vec3(res, -res, res) / 255.0;
+}
+
+float parabola( float x, float k ){
+    return pow( 4.0*x*(1.0-x), k );
+}
 
 // From: https://www.shadertoy.com/view/4sfGzS credit to iq
 float hash(vec3 p) {
@@ -139,9 +154,9 @@ float intersectSphere(vec3 pos, vec3 dir,float r) {
 // Returns density at a given point
 // Heavily based on method from Schneider
 float density(vec3 pip, vec3 weather, float mip) {
-	float time = mod(TIME, 100.0);
+	float time = TIME;
 	vec3 p = pip;
-	p.x += time * 10.0 * _time_scale + _time_offset;
+	p.x += time * 10.0 * cloud_time_scale + cloud_time_offset;
 	float height_fraction = GetHeightFractionForPoint(length(p));
 	vec4 n = textureLod(perlworlnoise, p.xyz*0.00008, mip-2.0);
 	float fbm = n.g*0.625+n.b*0.25+n.a*0.125;
@@ -181,16 +196,16 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 	vec3 atmosphere_ground = atmosphere(normalize(vec3(1.0, -1.0, 0.0)));
 	
 	const float weather_scale = 0.00006;
-	const float time = mod(TIME, 100.0) * 0.003 * _time_scale + 0.005*_time_offset;
-	const vec2 weather_pos = vec2(time * 0.9, time);
+	const float time = TIME * 0.003 * cloud_time_scale + 0.005* cloud_time_offset;
+	const vec2 weather_pos = vec2(time * cloud_direction.x, time * cloud_direction.y);
 	
 	for (int i = 0; i < depth; i++) {
 		p += dir * ss;
-		vec3 weather_sample = texture(weathermap, p.xz * weather_scale + 0.5 + weather_pos).xyz;
+		vec3 weather_sample = texture(cloud_map, p.xz * weather_scale + 0.5 + weather_pos).xyz;
 		float height_fraction = GetHeightFractionForPoint(length(p));
 
 		t = density(p, weather_sample, 0.0);
-		float dt = exp(-_density*t*ss);
+		float dt = exp(-cloud_density*t*ss);
 		T *= dt;
 		vec3 lp = p;
 		float lt = 1.0;
@@ -201,7 +216,7 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 			for (int j = 0; j < 6; j++) {
 				lp += (ldir + RANDOM_VECTORS[j]*float(j))*lss;
 				lheight_fraction = GetHeightFractionForPoint(length(lp));
-				vec3 lweather = texture(weathermap, lp.xz * weather_scale + 0.5 + weather_pos).xyz;
+				vec3 lweather = texture(cloud_map, lp.xz * weather_scale + 0.5 + weather_pos).xyz;
 				lt = density(lp, lweather, float(j));
 				cd += lt;
 			}
@@ -209,16 +224,16 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 			// Take a single distant sample
 			lp = p + ldir * 18.0 * lss;
 			lheight_fraction = GetHeightFractionForPoint(length(lp));
-			vec3 lweather = texture(weathermap, lp.xz * weather_scale + 0.5).xyz;
+			vec3 lweather = texture(cloud_map, lp.xz * weather_scale + 0.5).xyz;
 			lt = pow(density(lp, lweather, 5.0), (1.0 - lheight_fraction) * 0.8 + 0.5);
 			cd += lt;
 			
 			// captures the direct lighting from the sun
-			float beers = exp(-_density * cd * lss);
-			float beers2 = exp(-_density * cd * lss * 0.25) * 0.7;
+			float beers = exp(-cloud_density * cd * lss);
+			float beers2 = exp(-cloud_density * cd * lss * 0.25) * 0.7;
 			float beers_total = max(beers, beers2);
 
-			vec3 ambient = mix(atmosphere_ground, vec3(1.0), smoothstep(0.0, 1.0, height_fraction)) * _density * mix(atmosphere_ambient, vec3(1.0), 0.4) * (LIGHT0_DIRECTION.y);
+			vec3 ambient = mix(atmosphere_ground, vec3(1.0), smoothstep(0.0, 1.0, height_fraction)) * cloud_density * mix(atmosphere_ambient, vec3(1.0), 0.4) * (LIGHT0_DIRECTION.y);
 			alpha += (1.0 - dt) * (1.0 - alpha);
 			L += (ambient + beers_total * atmosphere_sun * phase * alpha) * T * t;
 		}
@@ -226,20 +241,40 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 	return clamp(vec4(L, alpha), 0.0, 1.0);
 }
 
-void sky() {
-	vec3 dir = EYEDIR;
-
-	vec4 col = vec4(0.0);
-	if (dir.y>0.0) {
+vec4 clouds(vec3 dir, vec3 background, vec2 stepsIn, float screenx)
+{
+	vec4 col;
+	if (dir.y>0.0) 
+	{
 		vec3 camPos = vec3(0.0, g_radius, 0.0);
 		vec3 start = camPos + dir * intersectSphere(camPos, dir, sky_b_radius);
 		vec3 end = camPos + dir * intersectSphere(camPos, dir, sky_t_radius);
 		float shelldist = (length(end-start));
-		// Take fewer steps towards horizon
-		float steps = (mix(96.0, 54.0, clamp(dot(dir, vec3(0.0, 1.0, 0.0)), 0.0, 1.0)));
+		// Take fewer steps towards horizon and screen sides
+		float steps = (mix(stepsIn.y, stepsIn.x, clamp(dot(dir, vec3(0.0, 1.0, 0.0)) * mix(1., parabola(screenx, 0.75), clouds_screen_lod), 0.0, 1.0)));
 		vec3 raystep = dir * shelldist / steps;
 		vec4 volume = march(start, end, raystep, int(steps));
-		vec3 background = atmosphere(dir);
+		volume *= cloud_modulate;
+		
+		// Draw cloud shape
+		col = vec4(background*(1.0-volume.a)+volume.xyz, 1.0);
+		// Blend distant clouds into the sky
+		col.xyz = mix(clamp(col.xyz, vec3(0.0), vec3(1.0)), clamp(background, vec3(0.0), vec3(1.0)), smoothstep(0.6, 1.0, 1.0-dir.y));
+		col = volume;
+	}
+
+	// Draw to quarter res buffer for reflections
+	// Draw to half res buffer for main sky
+	return col;
+}
+
+vec4 cloudsPost(vec3 dir, vec4 volume, vec3 background)
+{
+	//Draw background at full res pass
+	
+	vec4 col;
+	if (dir.y>0.0) 
+	{
 		// Draw cloud shape
 		col = vec4(background*(1.0-volume.a)+volume.xyz, 1.0);
 		// Blend distant clouds into the sky
@@ -247,18 +282,31 @@ void sky() {
 	} else {
 		col = vec4(atmosphere(dir), 1.0);
 	}
+	return col;
+}
+
+void sky() {
+	vec3 dir = EYEDIR;
+	vec3 background = atmosphere(dir);
+	background += interleaved_gradient_noise(FRAGCOORD.xy); //Deband
 	
-	// Draw to quarter res buffer for reflections
-	// Draw to half res buffer for main sky
-	if (AT_QUARTER_RES_PASS && AT_CUBEMAP_PASS) {
-		COLOR = col.xyz;
+	if(AT_HALF_RES_PASS && !AT_CUBEMAP_PASS)
+	{
+		vec4 col = clouds(dir, background, cloud_stepsRange, SCREEN_UV.x);
+		COLOR = col.rgb;
+		ALPHA = col.a;
+	}
+	else if (AT_QUARTER_RES_PASS && AT_CUBEMAP_PASS) 
+	{
+		COLOR = cloudsPost(dir, clouds(dir, background, vec2(15, 10), SCREEN_UV.x), background).rgb;
 		ALPHA = 1.0;
-	} else if (AT_HALF_RES_PASS && !AT_CUBEMAP_PASS) {
-		COLOR = col.xyz;
-		ALPHA = 1.0;
-	} else if (AT_CUBEMAP_PASS) {
+	}
+	else if (AT_CUBEMAP_PASS) {
 		COLOR = QUARTER_RES_COLOR.rgb;
-	} else {
-		COLOR = HALF_RES_COLOR.rgb; // Change to col.rgb for full resolution
+	} 
+	else
+	{
+		COLOR = cloudsPost(dir, vec4(HALF_RES_COLOR), background).rgb;
+		ALPHA = 1.0;
 	}
 }
