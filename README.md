@@ -9,6 +9,19 @@ just by rotating the sun.
 
 Renderer: Vulkan
 
+Fork changes:
+
+	- Clouds are calculated in half resolution pass
+	
+	- Additional optimization
+	
+	- Clouds don't reset after some time anymore
+	
+	- Organized parameters
+	
+	- Additional settings
+
+
 ## Screenshots
 
 ![Screenshot](screenshots/Midday.png)
