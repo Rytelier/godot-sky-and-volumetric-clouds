@@ -15,6 +15,8 @@ uniform vec2 cloud_direction = vec2(0.9,1);
 uniform vec2 cloud_stepsRange = vec2(96, 54);
 uniform float clouds_screen_lod : hint_range(0.0, 1.0, 0.1) = 1.0;
 uniform vec4 cloud_modulate : source_color = vec4(1,1,1,1);
+uniform vec2 cloud_cameraPositionMult = vec2(0.1, 0.2);
+uniform float cloud_cameraHeight;
 
 // Approximately earth sizes
 const float g_radius = 6000000.0; //ground radius
@@ -31,6 +33,11 @@ uniform float turbidity : hint_range(0, 1000) = 10.0;
 uniform float sun_disk_scale : hint_range(0, 360) = 1.0;
 uniform vec4 ground_color : source_color = vec4(1.0);
 uniform float exposure : hint_range(0, 128) = 0.1;
+
+uniform sampler2D spaceEmit : hint_default_transparent, filter_linear;
+uniform vec4 spaceEmit_color : source_color = vec4(1,1,1,1);
+uniform float spaceEmit_angle : hint_range(0.0, 1.0, 0.001);
+uniform float spaceEmit_strength = 1.0;
 
 const vec3 UP = vec3( 0.0, 1.0, 0.0 );
 
@@ -72,7 +79,7 @@ float henyey_greenstein(float cos_theta, float g) {
 }
 
 // Simple Analytic sky. In a real project you should use a texture
-vec3 atmosphere(vec3 eye_dir) {
+vec3 atmosphere(vec3 eye_dir, vec2 coords, float space) {
 	float zenith_angle = clamp( dot(UP, normalize(LIGHT0_DIRECTION)), -1.0, 1.0 );
 	float sun_energy = max(0.0, 1.0 - exp(-((PI * 0.5) - acos(zenith_angle)))) * SUN_ENERGY * LIGHT0_ENERGY;
 	float sun_fade = 1.0 - clamp(1.0 - exp(LIGHT0_DIRECTION.y), 0.0, 1.0);
@@ -114,6 +121,13 @@ vec3 atmosphere(vec3 eye_dir) {
 	float sundisk = smoothstep(sunAngularDiameterCos, sunAngularDiameterCos2, cos_theta);
 	vec3 L0 = (sun_energy * 1900.0 * extinction) * sundisk * LIGHT0_COLOR;
 	// Note: Add nightime here: L0 += night_sky * extinction
+	
+	//Space emit
+	vec2 spaceCoords = vec2(fract(coords.x + spaceEmit_angle), coords.y);
+	vec4 spaceTex = texture(spaceEmit, spaceCoords * vec2(1,2));
+	vec3 spaceCol = spaceTex.rgb*spaceTex.a*spaceEmit_color.rgb*spaceEmit_color.a;
+	
+	L0 += spaceCol*5000. * spaceEmit_strength * extinction * space;
 
 	vec3 color = (Lin + L0) * 0.04;
 	color = pow(color, vec3(1.0 / (1.2 + (1.2 * sun_fade))));
@@ -191,9 +205,9 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 	float phase = max(max(henyey_greenstein(costheta, 0.6), henyey_greenstein(costheta, (0.4 - 1.4 * ldir.y))), henyey_greenstein(costheta, -0.2));
 	// Precalculate sun and ambient colors
 	// This should really come from a uniform or texture for performance reasons
-	vec3 atmosphere_sun = atmosphere(LIGHT0_DIRECTION) * LIGHT0_ENERGY * ss * 0.1;
-	vec3 atmosphere_ambient = atmosphere(normalize(vec3(1.0, 1.0, 0.0)));
-	vec3 atmosphere_ground = atmosphere(normalize(vec3(1.0, -1.0, 0.0)));
+	vec3 atmosphere_sun = atmosphere(LIGHT0_DIRECTION, vec2(0), 0) * LIGHT0_ENERGY * ss * 0.1;
+	vec3 atmosphere_ambient = atmosphere(normalize(vec3(1.0, 1.0, 0.0)), vec2(0), 0);
+	vec3 atmosphere_ground = atmosphere(normalize(vec3(1.0, -1.0, 0.0)), vec2(0), 0);
 	
 	const float weather_scale = 0.00006;
 	const float time = TIME * 0.003 * cloud_time_scale + 0.005* cloud_time_offset;
@@ -241,12 +255,12 @@ vec4 march(vec3 pos,  vec3 end, vec3 dir, int depth) {
 	return clamp(vec4(L, alpha), 0.0, 1.0);
 }
 
-vec4 clouds(vec3 dir, vec3 background, vec2 stepsIn, float screenx)
+vec4 clouds(vec3 dir, vec3 background, vec2 stepsIn, float screenx, vec3 cam)
 {
 	vec4 col;
 	if (dir.y>0.0) 
 	{
-		vec3 camPos = vec3(0.0, g_radius, 0.0);
+		vec3 camPos = vec3(0.0, g_radius, 0.0) + vec3(cam.x * cloud_cameraPositionMult.x, cam.y * cloud_cameraPositionMult.y + cloud_cameraHeight, cam.z * cloud_cameraPositionMult.x);
 		vec3 start = camPos + dir * intersectSphere(camPos, dir, sky_b_radius);
 		vec3 end = camPos + dir * intersectSphere(camPos, dir, sky_t_radius);
 		float shelldist = (length(end-start));
@@ -268,37 +282,46 @@ vec4 clouds(vec3 dir, vec3 background, vec2 stepsIn, float screenx)
 	return col;
 }
 
-vec4 cloudsPost(vec3 dir, vec4 volume, vec3 background)
+vec4 cloudsPost(vec3 dir, vec4 volume, vec3 background, vec2 coords)
 {
 	//Draw background at full res pass
 	
 	vec4 col;
+	
+	//Space emit
+	vec2 spaceCoords = vec2(fract(coords.x + spaceEmit_angle), coords.y);
+	vec4 spaceTex = texture(spaceEmit, spaceCoords * vec2(1,2));
+	vec3 spaceCol = spaceTex.rgb*spaceTex.a*spaceEmit_color.rgb*spaceEmit_color.a;
+	spaceCol = vec3(0);
+	
 	if (dir.y>0.0) 
 	{
 		// Draw cloud shape
-		col = vec4(background*(1.0-volume.a)+volume.xyz, 1.0);
+		col = vec4((background+spaceCol)*(1.0-volume.a)+volume.xyz, 1.0);
 		// Blend distant clouds into the sky
 		col.xyz = mix(clamp(col.xyz, vec3(0.0), vec3(1.0)), clamp(background, vec3(0.0), vec3(1.0)), smoothstep(0.6, 1.0, 1.0-dir.y));
 	} else {
-		col = vec4(atmosphere(dir), 1.0);
+		col = vec4(atmosphere(dir, vec2(0), 0), 1.0);
 	}
+	
 	return col;
 }
 
 void sky() {
 	vec3 dir = EYEDIR;
-	vec3 background = atmosphere(dir);
+	vec3 background = atmosphere(dir, SKY_COORDS, 1.);
+	
 	background += interleaved_gradient_noise(FRAGCOORD.xy); //Deband
 	
 	if(AT_HALF_RES_PASS && !AT_CUBEMAP_PASS)
 	{
-		vec4 col = clouds(dir, background, cloud_stepsRange, SCREEN_UV.x);
+		vec4 col = clouds(dir, background, cloud_stepsRange, SCREEN_UV.x, POSITION);
 		COLOR = col.rgb;
 		ALPHA = col.a;
 	}
 	else if (AT_QUARTER_RES_PASS && AT_CUBEMAP_PASS) 
 	{
-		COLOR = cloudsPost(dir, clouds(dir, background, vec2(15, 10), SCREEN_UV.x), background).rgb;
+		COLOR = cloudsPost(dir, clouds(dir, background, vec2(15, 10), SCREEN_UV.x, POSITION), background, SKY_COORDS).rgb;
 		ALPHA = 1.0;
 	}
 	else if (AT_CUBEMAP_PASS) {
@@ -306,7 +329,7 @@ void sky() {
 	} 
 	else
 	{
-		COLOR = cloudsPost(dir, vec4(HALF_RES_COLOR), background).rgb;
+		COLOR = cloudsPost(dir, vec4(HALF_RES_COLOR), background, SKY_COORDS).rgb;
 		ALPHA = 1.0;
 	}
 }

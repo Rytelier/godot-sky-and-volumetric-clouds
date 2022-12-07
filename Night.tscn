@@ -1,0 +1,64 @@
+[gd_scene load_steps=11 format=3 uid="uid://dyg3pyr8e2xrj"]
+
+[ext_resource type="Shader" path="res://sky volumetric clouds.gdshader" id="1_swpyn"]
+[ext_resource type="Texture2D" uid="uid://dfkye0uf4i6w1" path="res://weather.bmp" id="2_3dxna"]
+[ext_resource type="CompressedTexture3D" uid="uid://dbfbysid168mx" path="res://perlworlnoise.tga" id="3_jlqi5"]
+[ext_resource type="Texture2D" uid="uid://b7hx805lhpnir" path="res://space.png" id="4_3crpd"]
+[ext_resource type="CompressedTexture3D" uid="uid://c4dp6g6gouj2b" path="res://worlnoise.bmp" id="5_tgn0m"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_hjj5o"]
+shader = ExtResource("1_swpyn")
+shader_parameter/cloud_cameraHeight = null
+shader_parameter/cloud_cameraPositionMult = Vector2(0.1, 0.2)
+shader_parameter/cloud_coverage = 0.169
+shader_parameter/cloud_density = 0.05
+shader_parameter/cloud_direction = Vector2(0.9, 1)
+shader_parameter/cloud_map = ExtResource("2_3dxna")
+shader_parameter/cloud_modulate = Color(1, 1, 1, 1)
+shader_parameter/cloud_stepsRange = Vector2(96, 54)
+shader_parameter/cloud_time_offset = 0.0
+shader_parameter/cloud_time_scale = 0.165
+shader_parameter/clouds_screen_lod = 1.0
+shader_parameter/exposure = 0.015
+shader_parameter/ground_color = Color(0.211765, 0.211765, 0.211765, 1)
+shader_parameter/mie = 0.021
+shader_parameter/mie_color = Color(0.435294, 0.756863, 0.937255, 1)
+shader_parameter/mie_eccentricity = 0.919
+shader_parameter/perlworlnoise = ExtResource("3_jlqi5")
+shader_parameter/rayleigh = 3.676
+shader_parameter/rayleigh_color = Color(0.109804, 0.184314, 0.266667, 1)
+shader_parameter/spaceEmit = ExtResource("4_3crpd")
+shader_parameter/spaceEmit_angle = 0.0
+shader_parameter/spaceEmit_color = Color(0.662745, 0.854902, 1, 1)
+shader_parameter/spaceEmit_strength = 3.0
+shader_parameter/sun_disk_scale = 5.956
+shader_parameter/turbidity = 75.758
+shader_parameter/worlnoise = ExtResource("5_tgn0m")
+
+[sub_resource type="Sky" id="Sky_jvcp8"]
+sky_material = SubResource("ShaderMaterial_hjj5o")
+
+[sub_resource type="Environment" id="Environment_c7td7"]
+background_mode = 2
+sky = SubResource("Sky_jvcp8")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxMesh" id="BoxMesh_1dhrw"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x0a7x"]
+roughness = 0.0
+
+[node name="Node3D" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_c7td7")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.654624, 0.533474, -0.535605, -0.271574, 0.827176, 0.491963, 0.705489, -0.176594, 0.686367, 0, 0, 0)
+shadow_enabled = true
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, -4.55032e-11, 0, 5.68434e-13, 1, -2.32831e-10, 0, 2.32831e-10, 1, -7.31071e-06, 1.99426, 4.00286)
+mesh = SubResource("BoxMesh_1dhrw")
+surface_material_override/0 = SubResource("StandardMaterial3D_x0a7x")
