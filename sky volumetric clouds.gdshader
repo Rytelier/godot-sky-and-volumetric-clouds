@@ -282,22 +282,16 @@ vec4 clouds(vec3 dir, vec3 background, vec2 stepsIn, float screenx, vec3 cam)
 	return col;
 }
 
-vec4 cloudsPost(vec3 dir, vec4 volume, vec3 background, vec2 coords)
+vec4 cloudsPost(vec3 dir, vec4 volume, vec3 background)
 {
 	//Draw background at full res pass
 	
 	vec4 col;
 	
-	//Space emit
-	vec2 spaceCoords = vec2(fract(coords.x + spaceEmit_angle), coords.y);
-	vec4 spaceTex = texture(spaceEmit, spaceCoords * vec2(1,2));
-	vec3 spaceCol = spaceTex.rgb*spaceTex.a*spaceEmit_color.rgb*spaceEmit_color.a;
-	spaceCol = vec3(0);
-	
 	if (dir.y>0.0) 
 	{
 		// Draw cloud shape
-		col = vec4((background+spaceCol)*(1.0-volume.a)+volume.xyz, 1.0);
+		col = vec4(background*(1.0-volume.a)+volume.xyz, 1.0);
 		// Blend distant clouds into the sky
 		col.xyz = mix(clamp(col.xyz, vec3(0.0), vec3(1.0)), clamp(background, vec3(0.0), vec3(1.0)), smoothstep(0.6, 1.0, 1.0-dir.y));
 	} else {
@@ -321,7 +315,7 @@ void sky() {
 	}
 	else if (AT_QUARTER_RES_PASS && AT_CUBEMAP_PASS) 
 	{
-		COLOR = cloudsPost(dir, clouds(dir, background, vec2(15, 10), SCREEN_UV.x, POSITION), background, SKY_COORDS).rgb;
+		COLOR = cloudsPost(dir, clouds(dir, background, vec2(15, 10), SCREEN_UV.x, POSITION), background).rgb;
 		ALPHA = 1.0;
 	}
 	else if (AT_CUBEMAP_PASS) {
@@ -329,7 +323,7 @@ void sky() {
 	} 
 	else
 	{
-		COLOR = cloudsPost(dir, vec4(HALF_RES_COLOR), background, SKY_COORDS).rgb;
+		COLOR = cloudsPost(dir, vec4(HALF_RES_COLOR), background).rgb;
 		ALPHA = 1.0;
 	}
 }
