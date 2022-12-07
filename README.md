@@ -20,6 +20,10 @@ Fork changes:
 	- Organized parameters
 	
 	- Additional settings
+	
+	- Space emit
+	
+	- Clouds following camera
 
 
 ## Screenshots
@@ -29,3 +33,5 @@ Fork changes:
 ![Screenshot](screenshots/Dusk.png)
 
 ![Screenshot](screenshots/Sunset.png)
+
+![Screenshot](screenshots/night.jpg)
